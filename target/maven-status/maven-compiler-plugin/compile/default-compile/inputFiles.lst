@@ -1,0 +1,7 @@
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/KnowledgeBaseApplication.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/config/DatabaseConfig.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/dao/KnowledgeBaseDAO.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/model/KnowledgeEntry.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/repository/KnowledgeEntryRepository.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/service/KnowledgeEntryService.java
+/workspaces/Kdbstanalone/src/main/java/com/knowledgebase/ui/MainView.java
