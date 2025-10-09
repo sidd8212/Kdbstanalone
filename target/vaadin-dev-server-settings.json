@@ -1,0 +1,17 @@
+{
+  "frontendFolder": "/workspaces/Kdbstanalone/frontend",
+  "themeFolder": "themes",
+  "themeResourceFolder": "/workspaces/Kdbstanalone/frontend/generated/jar-resources",
+  "staticOutput": "/workspaces/Kdbstanalone/target/classes/META-INF/VAADIN/webapp/VAADIN/static",
+  "generatedFolder": "generated",
+  "statsOutput": "/workspaces/Kdbstanalone/target/classes/META-INF/VAADIN/config",
+  "frontendBundleOutput": "/workspaces/Kdbstanalone/target/classes/META-INF/VAADIN/webapp",
+  "devBundleOutput": "/workspaces/Kdbstanalone/src/main/dev-bundle/webapp",
+  "devBundleStatsOutput": "/workspaces/Kdbstanalone/src/main/dev-bundle/config",
+  "jarResourcesFolder": "/workspaces/Kdbstanalone/frontend/generated/jar-resources",
+  "themeName": "",
+  "clientServiceWorkerSource": "/workspaces/Kdbstanalone/target/sw.ts",
+  "pwaEnabled": false,
+  "offlineEnabled": false,
+  "offlinePath": "'offline.html'"
+}

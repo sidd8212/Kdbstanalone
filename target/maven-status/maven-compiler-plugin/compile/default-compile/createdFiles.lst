@@ -1,0 +1,8 @@
+com/knowledgebase/service/KnowledgeEntryService.class
+com/knowledgebase/repository/KnowledgeEntryRepository.class
+com/knowledgebase/ui/MainView.class
+com/knowledgebase/dao/KnowledgeBaseDAO.class
+com/knowledgebase/ui/MainView$1.class
+com/knowledgebase/KnowledgeBaseApplication.class
+com/knowledgebase/config/DatabaseConfig.class
+com/knowledgebase/model/KnowledgeEntry.class
