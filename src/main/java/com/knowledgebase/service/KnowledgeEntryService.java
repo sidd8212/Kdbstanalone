@@ -44,6 +44,20 @@ public class KnowledgeEntryService {
         repository.deleteById(id);
     }
 
+    public List<KnowledgeEntry> searchEntries(String query) {
+        if (query == null || query.isBlank()) {
+            return repository.findAll();
+        }
+        return repository.searchEntries(query.trim());
+    }
+
+    public List<KnowledgeEntry> searchRootEntries(String query) {
+        if (query == null || query.isBlank()) {
+            return repository.findRootEntries();
+        }
+        return repository.searchRootEntries(query.trim());
+    }
+
     @Transactional
     public void incrementViewCount(Long id) {
         repository.findById(id).ifPresent(entry -> {
