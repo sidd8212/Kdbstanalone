@@ -3,13 +3,16 @@ package com.knowledgebase.ui;
 import com.knowledgebase.model.KnowledgeEntry;
 import com.knowledgebase.service.KnowledgeEntryService;
 import com.vaadin.flow.component.Key;
+import com.vaadin.flow.component.KeyNotifier;
 import com.vaadin.flow.component.Shortcuts;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.html.Hr;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.Icon;
@@ -25,33 +28,48 @@ import com.vaadin.flow.component.treegrid.TreeGrid;
 import com.vaadin.flow.data.provider.hierarchy.AbstractBackEndHierarchicalDataProvider;
 import com.vaadin.flow.data.provider.hierarchy.HierarchicalQuery;
 import com.vaadin.flow.data.value.ValueChangeMode;
+import com.vaadin.flow.router.BeforeEvent;
+import com.vaadin.flow.router.HasUrlParameter;
+import com.vaadin.flow.router.OptionalParameter;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 @Route("")
 @PageTitle("Knowledge Base")
-public class MainView extends VerticalLayout {
+public class MainView extends VerticalLayout implements HasUrlParameter<Long> {
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm");
+    private static final DateTimeFormatter DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm");
 
     private final KnowledgeEntryService service;
 
+    // Left panel components
     private TreeGrid<KnowledgeEntry> treeGrid;
     private TextField searchField;
+    private VerticalLayout searchResultsPanel;
+    private Span searchResultCountLabel;
+    private List<KnowledgeEntry> currentSearchResults = new ArrayList<>();
+    private int searchResultFocusIndex = -1;
+
+    // Right panel components
     private TextField titleField;
     private TextArea contentArea;
     private Span viewCountBadge;
     private Span createdAtSpan;
     private Span updatedAtSpan;
+    private Span saveStatusSpan;
     private HorizontalLayout breadcrumbBar;
     private VerticalLayout contentPanel;
     private Div emptyStatePanel;
-    private String currentSearchQuery = "";
 
+    // State
+    private String currentSearchQuery = "";
     private KnowledgeEntry currentEntry;
 
     @Autowired
@@ -63,6 +81,18 @@ public class MainView extends VerticalLayout {
         setSpacing(false);
 
         add(buildHeader(), buildMainLayout());
+    }
+
+    // ─── URL parameter: navigate directly to a topic by ID ───────────────────
+
+    @Override
+    public void setParameter(BeforeEvent event, @OptionalParameter Long topicId) {
+        if (topicId != null) {
+            service.getEntry(topicId).ifPresent(entry -> {
+                treeGrid.select(entry);
+                loadEntry(entry);
+            });
+        }
     }
 
     // ─── Header ──────────────────────────────────────────────────────────────
@@ -117,7 +147,7 @@ public class MainView extends VerticalLayout {
         return layout;
     }
 
-    // ─── Left panel (navigation tree + search) ────────────────────────────────
+    // ─── Left panel ───────────────────────────────────────────────────────────
 
     private VerticalLayout buildLeftPanel() {
         VerticalLayout panel = new VerticalLayout();
@@ -144,7 +174,6 @@ public class MainView extends VerticalLayout {
                 .set("font-weight", "600")
                 .set("font-size", "0.9rem")
                 .set("color", "#424242");
-
         panelHeader.add(topicsLabel);
 
         // Search field
@@ -156,9 +185,15 @@ public class MainView extends VerticalLayout {
         searchField.getStyle().set("padding", "8px");
         searchField.setValueChangeMode(ValueChangeMode.LAZY);
         searchField.setValueChangeTimeout(300);
-        searchField.addValueChangeListener(e -> {
-            currentSearchQuery = e.getValue();
-            treeGrid.getDataProvider().refreshAll();
+        searchField.addValueChangeListener(e -> onSearchChanged(e.getValue()));
+
+        // Keyboard navigation in search results
+        searchField.addKeyDownListener(Key.ARROW_DOWN, e -> moveFocus(1));
+        searchField.addKeyDownListener(Key.ARROW_UP, e -> moveFocus(-1));
+        searchField.addKeyDownListener(Key.ENTER, e -> selectFocusedResult());
+        searchField.addKeyDownListener(Key.ESCAPE, e -> {
+            searchField.clear();
+            onSearchChanged("");
         });
 
         // Tree grid
@@ -167,14 +202,28 @@ public class MainView extends VerticalLayout {
         treeGrid.addHierarchyColumn(KnowledgeEntry::getTitle)
                 .setHeader("Title")
                 .setFlexGrow(1);
-        treeGrid.addColumn(entry -> service.getChildEntries(entry.getId()).size() + " children")
-                .setHeader("Children")
+        treeGrid.addColumn(entry -> service.getChildEntries(entry.getId()).size() + " child(ren)")
+                .setHeader("")
                 .setWidth("90px")
                 .setFlexGrow(0);
         treeGrid.setDataProvider(buildTreeDataProvider());
         treeGrid.addSelectionListener(event -> event.getFirstSelectedItem().ifPresent(this::loadEntry));
 
-        // Action buttons row
+        // Search results panel (hidden when search is empty)
+        searchResultCountLabel = new Span();
+        searchResultCountLabel.getStyle()
+                .set("font-size", "0.78rem")
+                .set("color", "#757575")
+                .set("padding", "4px 8px");
+
+        searchResultsPanel = new VerticalLayout();
+        searchResultsPanel.setSizeFull();
+        searchResultsPanel.setPadding(false);
+        searchResultsPanel.setSpacing(false);
+        searchResultsPanel.setVisible(false);
+        searchResultsPanel.getStyle().set("overflow-y", "auto");
+
+        // Action buttons
         Button newRootBtn = new Button("New Topic", VaadinIcon.PLUS.create(), e -> createNewEntry(null));
         newRootBtn.addThemeVariants(ButtonVariant.LUMO_SMALL, ButtonVariant.LUMO_PRIMARY);
         newRootBtn.setWidthFull();
@@ -191,16 +240,215 @@ public class MainView extends VerticalLayout {
         actionButtons.setPadding(true);
         actionButtons.getStyle().set("border-top", "1px solid #e0e0e0");
 
-        panel.add(panelHeader, searchField, treeGrid, actionButtons);
+        panel.add(panelHeader, searchField, searchResultCountLabel, searchResultsPanel, treeGrid, actionButtons);
         panel.expand(treeGrid);
 
         return panel;
     }
 
+    private void onSearchChanged(String query) {
+        currentSearchQuery = query;
+        if (query == null || query.isBlank()) {
+            // Show tree, hide search results
+            searchResultCountLabel.setVisible(false);
+            searchResultsPanel.setVisible(false);
+            treeGrid.setVisible(true);
+            treeGrid.getDataProvider().refreshAll();
+            currentSearchResults.clear();
+            searchResultFocusIndex = -1;
+        } else {
+            // Show search results, hide tree
+            treeGrid.setVisible(false);
+            searchResultCountLabel.setVisible(true);
+            searchResultsPanel.setVisible(true);
+            populateSearchResults(query.trim());
+        }
+    }
+
+    private void populateSearchResults(String query) {
+        try {
+            currentSearchResults = service.searchEntries(query);
+            searchResultFocusIndex = -1;
+            searchResultsPanel.removeAll();
+
+            if (currentSearchResults.isEmpty()) {
+                searchResultCountLabel.setText("No results for "" + query + """);
+                Div empty = new Div();
+                empty.getStyle()
+                        .set("padding", "16px")
+                        .set("text-align", "center")
+                        .set("color", "#9e9e9e")
+                        .set("font-size", "0.85rem");
+                empty.setText("No matching topics found.");
+                searchResultsPanel.add(empty);
+            } else {
+                searchResultCountLabel.setText(currentSearchResults.size() + " result(s) for "" + query + """);
+                for (int i = 0; i < currentSearchResults.size(); i++) {
+                    searchResultsPanel.add(buildResultItem(currentSearchResults.get(i), query, i));
+                }
+            }
+        } catch (Exception ex) {
+            showNotification("Search failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+        }
+    }
+
+    private Div buildResultItem(KnowledgeEntry entry, String query, int index) {
+        Div item = new Div();
+        item.setId("search-result-" + index);
+        item.getStyle()
+                .set("padding", "10px 12px")
+                .set("border-bottom", "1px solid #f0f0f0")
+                .set("cursor", "pointer")
+                .set("transition", "background-color 0.15s");
+
+        // Title with highlighted match
+        Div titleDiv = new Div();
+        titleDiv.getStyle()
+                .set("font-weight", "600")
+                .set("font-size", "0.88rem")
+                .set("color", "#212121")
+                .set("margin-bottom", "4px");
+        titleDiv.getElement().setProperty("innerHTML", highlightMatch(entry.getTitle(), query));
+
+        // Path (breadcrumb)
+        String path = buildPathString(entry);
+        Div pathDiv = new Div();
+        pathDiv.getStyle()
+                .set("font-size", "0.75rem")
+                .set("color", "#9e9e9e")
+                .set("margin-bottom", "4px");
+        pathDiv.setText(path);
+
+        // Content snippet with highlight
+        String snippet = buildContentSnippet(entry.getContent(), query);
+        Div snippetDiv = new Div();
+        snippetDiv.getStyle()
+                .set("font-size", "0.78rem")
+                .set("color", "#616161");
+        snippetDiv.getElement().setProperty("innerHTML", highlightMatch(snippet, query));
+
+        // Created date
+        Div dateDiv = new Div();
+        dateDiv.getStyle()
+                .set("font-size", "0.72rem")
+                .set("color", "#bdbdbd")
+                .set("margin-top", "4px");
+        if (entry.getCreatedAt() != null) {
+            dateDiv.setText("Created: " + entry.getCreatedAt().format(DATE_FORMATTER));
+        }
+
+        item.add(titleDiv, pathDiv, snippetDiv, dateDiv);
+
+        // Click to load
+        item.addClickListener(e -> {
+            searchField.clear();
+            onSearchChanged("");
+            treeGrid.select(entry);
+            loadEntry(entry);
+        });
+
+        // Hover styling via DOM events
+        item.getElement().addEventListener("mouseover",
+                e -> item.getStyle().set("background-color", "#E3F2FD"));
+        item.getElement().addEventListener("mouseout",
+                e -> item.getStyle().remove("background-color"));
+
+        return item;
+    }
+
+    /** Wraps matched text in a yellow <mark> */
+    private String highlightMatch(String text, String query) {
+        if (text == null || text.isBlank() || query == null || query.isBlank()) {
+            return text == null ? "" : escapeHtml(text);
+        }
+        String lowerText = text.toLowerCase();
+        String lowerQuery = query.toLowerCase();
+        StringBuilder sb = new StringBuilder();
+        int start = 0;
+        int idx;
+        while ((idx = lowerText.indexOf(lowerQuery, start)) >= 0) {
+            sb.append(escapeHtml(text.substring(start, idx)));
+            sb.append("<mark style=\"background-color:#FFF176;color:#212121;border-radius:2px;\">")
+              .append(escapeHtml(text.substring(idx, idx + query.length())))
+              .append("</mark>");
+            start = idx + query.length();
+        }
+        sb.append(escapeHtml(text.substring(start)));
+        return sb.toString();
+    }
+
+    private String escapeHtml(String text) {
+        return text.replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\"", "&quot;");
+    }
+
+    private String buildContentSnippet(String content, String query) {
+        if (content == null || content.isBlank()) return "";
+        String lower = content.toLowerCase();
+        String lowerQuery = query.toLowerCase();
+        int idx = lower.indexOf(lowerQuery);
+        if (idx < 0) {
+            return content.length() > 120 ? content.substring(0, 120) + "…" : content;
+        }
+        int start = Math.max(0, idx - 40);
+        int end = Math.min(content.length(), idx + query.length() + 80);
+        String snippet = (start > 0 ? "…" : "") + content.substring(start, end) + (end < content.length() ? "…" : "");
+        return snippet;
+    }
+
+    private String buildPathString(KnowledgeEntry entry) {
+        java.util.Deque<String> parts = new java.util.ArrayDeque<>();
+        KnowledgeEntry cur = entry;
+        while (cur != null) {
+            parts.addFirst(cur.getTitle());
+            cur = cur.getParent();
+        }
+        return String.join(" › ", parts);
+    }
+
+    // ─── Keyboard navigation in search results ───────────────────────────────
+
+    private void moveFocus(int delta) {
+        if (currentSearchResults.isEmpty()) return;
+        int newIndex = searchResultFocusIndex + delta;
+        newIndex = Math.max(0, Math.min(newIndex, currentSearchResults.size() - 1));
+        setResultFocus(newIndex);
+    }
+
+    private void setResultFocus(int index) {
+        // Clear previous focus style
+        if (searchResultFocusIndex >= 0 && searchResultFocusIndex < searchResultsPanel.getComponentCount()) {
+            searchResultsPanel.getComponentAt(searchResultFocusIndex)
+                    .getElement().getStyle().remove("background-color");
+        }
+        searchResultFocusIndex = index;
+        if (index >= 0 && index < searchResultsPanel.getComponentCount()) {
+            searchResultsPanel.getComponentAt(index)
+                    .getElement().getStyle().set("background-color", "#BBDEFB");
+            // Scroll into view
+            searchResultsPanel.getComponentAt(index)
+                    .getElement().callJsFunction("scrollIntoView",
+                            searchResultsPanel.getElement().executeJs("return {block:'nearest'}"));
+        }
+    }
+
+    private void selectFocusedResult() {
+        if (searchResultFocusIndex >= 0 && searchResultFocusIndex < currentSearchResults.size()) {
+            KnowledgeEntry entry = currentSearchResults.get(searchResultFocusIndex);
+            searchField.clear();
+            onSearchChanged("");
+            treeGrid.select(entry);
+            loadEntry(entry);
+        }
+    }
+
     private AbstractBackEndHierarchicalDataProvider<KnowledgeEntry, Void> buildTreeDataProvider() {
         return new AbstractBackEndHierarchicalDataProvider<>() {
             @Override
-            protected Stream<KnowledgeEntry> fetchChildrenFromBackEnd(HierarchicalQuery<KnowledgeEntry, Void> query) {
+            protected Stream<KnowledgeEntry> fetchChildrenFromBackEnd(
+                    HierarchicalQuery<KnowledgeEntry, Void> query) {
                 KnowledgeEntry parent = query.getParent();
                 if (parent == null) {
                     return service.searchRootEntries(currentSearchQuery).stream();
@@ -224,7 +472,7 @@ public class MainView extends VerticalLayout {
         };
     }
 
-    // ─── Right panel (content + empty state) ─────────────────────────────────
+    // ─── Right panel ─────────────────────────────────────────────────────────
 
     private VerticalLayout buildRightPanel() {
         VerticalLayout panel = new VerticalLayout();
@@ -283,21 +531,29 @@ public class MainView extends VerticalLayout {
                 .set("border-bottom", "1px solid #e0e0e0")
                 .set("background-color", "#f5f5f5")
                 .set("font-size", "0.85rem")
-                .set("color", "#616161")
                 .set("flex-wrap", "wrap");
 
-        // Content area
+        // Edit area
         VerticalLayout editArea = new VerticalLayout();
         editArea.setSizeFull();
         editArea.setPadding(true);
         editArea.setSpacing(true);
 
-        // Toolbar: save + delete
+        // Toolbar
         Button saveBtn = new Button("Save", VaadinIcon.CHECK.create(), e -> saveCurrentEntry());
         saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_SMALL);
 
         Button deleteBtn = new Button("Delete", VaadinIcon.TRASH.create(), e -> confirmDeleteEntry());
         deleteBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_SMALL);
+
+        Button importBtn = new Button("Import", VaadinIcon.PASTE.create(), e -> openImportDialog());
+        importBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
+
+        // Save status indicator
+        saveStatusSpan = new Span();
+        saveStatusSpan.getStyle()
+                .set("font-size", "0.78rem")
+                .set("color", "#757575");
 
         // View count badge
         viewCountBadge = new Span("Views: 0");
@@ -309,7 +565,10 @@ public class MainView extends VerticalLayout {
                 .set("font-size", "0.8rem")
                 .set("font-weight", "500");
 
-        HorizontalLayout toolbar = new HorizontalLayout(saveBtn, deleteBtn, viewCountBadge);
+        HorizontalLayout leftTools = new HorizontalLayout(saveBtn, deleteBtn, importBtn, saveStatusSpan);
+        leftTools.setAlignItems(FlexComponent.Alignment.CENTER);
+
+        HorizontalLayout toolbar = new HorizontalLayout(leftTools, viewCountBadge);
         toolbar.setAlignItems(FlexComponent.Alignment.CENTER);
         toolbar.setWidthFull();
         toolbar.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
@@ -318,7 +577,7 @@ public class MainView extends VerticalLayout {
         titleField = new TextField("Title");
         titleField.setWidthFull();
         titleField.setValueChangeMode(ValueChangeMode.LAZY);
-        titleField.setValueChangeTimeout(1000);
+        titleField.setValueChangeTimeout(1500);
         titleField.addValueChangeListener(e -> autoSave());
 
         // Content textarea
@@ -326,10 +585,10 @@ public class MainView extends VerticalLayout {
         contentArea.setWidthFull();
         contentArea.setMinHeight("350px");
         contentArea.setValueChangeMode(ValueChangeMode.LAZY);
-        contentArea.setValueChangeTimeout(1000);
+        contentArea.setValueChangeTimeout(1500);
         contentArea.addValueChangeListener(e -> autoSave());
 
-        // Metadata row (timestamps)
+        // Metadata row
         createdAtSpan = new Span();
         updatedAtSpan = new Span();
         styleMetaSpan(createdAtSpan);
@@ -337,12 +596,11 @@ public class MainView extends VerticalLayout {
 
         HorizontalLayout metaRow = new HorizontalLayout(createdAtSpan, updatedAtSpan);
         metaRow.setSpacing(true);
-        metaRow.getStyle().set("font-size", "0.8rem").set("color", "#9e9e9e");
 
         editArea.add(toolbar, titleField, contentArea, metaRow);
         editArea.expand(contentArea);
 
-        // Keyboard shortcut: Ctrl+S to save
+        // Ctrl+S shortcut
         Shortcuts.addShortcutListener(editArea, this::saveCurrentEntry, Key.KEY_S)
                 .withModifiers(com.vaadin.flow.component.KeyModifier.CONTROL);
 
@@ -358,40 +616,121 @@ public class MainView extends VerticalLayout {
                 .set("color", "#9e9e9e");
     }
 
+    // ─── Import dialog ────────────────────────────────────────────────────────
+
+    private void openImportDialog() {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Import Content");
+        dialog.setWidth("600px");
+
+        Paragraph instructions = new Paragraph(
+                "Paste content below. A new topic will be created, or it will be appended to the current topic.");
+        instructions.getStyle().set("margin-top", "0");
+
+        TextField importTitle = new TextField("Topic Title");
+        importTitle.setWidthFull();
+        importTitle.setPlaceholder("Enter a title for the imported content");
+        if (currentEntry != null) {
+            importTitle.setValue("Import into: " + currentEntry.getTitle());
+        }
+
+        TextArea importContent = new TextArea("Content to Import");
+        importContent.setWidthFull();
+        importContent.setMinHeight("200px");
+        importContent.setPlaceholder("Paste your content here...");
+
+        // Options
+        Button createNewBtn = new Button("Create New Topic", e -> {
+            String title = importTitle.getValue().isBlank() ? "Imported Topic" : importTitle.getValue();
+            String content = importContent.getValue();
+            if (content.isBlank()) {
+                showNotification("Content cannot be empty", NotificationVariant.LUMO_WARNING);
+                return;
+            }
+            try {
+                KnowledgeEntry newEntry = new KnowledgeEntry();
+                newEntry.setTitle(title);
+                newEntry.setContent(content);
+                KnowledgeEntry saved = service.createEntry(newEntry);
+                treeGrid.getDataProvider().refreshAll();
+                treeGrid.select(saved);
+                loadEntry(saved);
+                dialog.close();
+                showNotification("Topic imported successfully", NotificationVariant.LUMO_SUCCESS);
+            } catch (Exception ex) {
+                showNotification("Import failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+            }
+        });
+        createNewBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        Button appendBtn = new Button("Append to Current", e -> {
+            if (currentEntry == null) {
+                showNotification("No topic selected to append to", NotificationVariant.LUMO_WARNING);
+                return;
+            }
+            String content = importContent.getValue();
+            if (content.isBlank()) {
+                showNotification("Content cannot be empty", NotificationVariant.LUMO_WARNING);
+                return;
+            }
+            try {
+                String existing = currentEntry.getContent() != null ? currentEntry.getContent() : "";
+                currentEntry.setContent(existing + (existing.isBlank() ? "" : "\n\n") + content);
+                service.updateEntry(currentEntry);
+                contentArea.setValue(currentEntry.getContent());
+                dialog.close();
+                showNotification("Content appended successfully", NotificationVariant.LUMO_SUCCESS);
+            } catch (Exception ex) {
+                showNotification("Append failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+            }
+        });
+
+        Button cancelBtn = new Button("Cancel", e -> dialog.close());
+        cancelBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+
+        VerticalLayout content = new VerticalLayout(instructions, importTitle, importContent);
+        content.setPadding(false);
+        dialog.add(content);
+        dialog.getFooter().add(cancelBtn, appendBtn, createNewBtn);
+        dialog.open();
+    }
+
     // ─── Entry operations ─────────────────────────────────────────────────────
 
     private void loadEntry(KnowledgeEntry entry) {
-        currentEntry = entry;
+        try {
+            currentEntry = entry;
 
-        // Show content panel, hide empty state
-        emptyStatePanel.setVisible(false);
-        contentPanel.setVisible(true);
+            emptyStatePanel.setVisible(false);
+            contentPanel.setVisible(true);
 
-        // Populate fields
-        titleField.setValue(entry.getTitle() != null ? entry.getTitle() : "");
-        contentArea.setValue(entry.getContent() != null ? entry.getContent() : "");
-        viewCountBadge.setText("Views: " + entry.getViewCount());
+            titleField.setValue(entry.getTitle() != null ? entry.getTitle() : "");
+            contentArea.setValue(entry.getContent() != null ? entry.getContent() : "");
+            viewCountBadge.setText("Views: " + entry.getViewCount());
+            saveStatusSpan.setText("");
 
-        // Timestamps
-        if (entry.getCreatedAt() != null) {
-            createdAtSpan.setText("Created: " + entry.getCreatedAt().format(DATE_FORMATTER));
+            if (entry.getCreatedAt() != null) {
+                createdAtSpan.setText("Created: " + entry.getCreatedAt().format(DATE_FORMATTER));
+            }
+            if (entry.getUpdatedAt() != null) {
+                updatedAtSpan.setText("Last updated: " + entry.getUpdatedAt().format(DATE_FORMATTER));
+            }
+
+            buildBreadcrumb(entry);
+
+            service.incrementViewCount(entry.getId());
+            treeGrid.getDataProvider().refreshItem(entry);
+
+            // Update URL to reflect current topic
+            getUI().ifPresent(ui -> ui.navigate(MainView.class, entry.getId()));
+        } catch (Exception ex) {
+            showNotification("Failed to load topic: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
         }
-        if (entry.getUpdatedAt() != null) {
-            updatedAtSpan.setText("Last updated: " + entry.getUpdatedAt().format(DATE_FORMATTER));
-        }
-
-        // Build breadcrumb
-        buildBreadcrumb(entry);
-
-        // Increment view count
-        service.incrementViewCount(entry.getId());
-        treeGrid.getDataProvider().refreshItem(entry);
     }
 
     private void buildBreadcrumb(KnowledgeEntry entry) {
         breadcrumbBar.removeAll();
 
-        // Walk up the tree to collect ancestors
         java.util.Deque<KnowledgeEntry> path = new java.util.ArrayDeque<>();
         KnowledgeEntry current = entry;
         while (current != null) {
@@ -426,56 +765,79 @@ public class MainView extends VerticalLayout {
     }
 
     private void createNewEntry(KnowledgeEntry parent) {
-        KnowledgeEntry newEntry = new KnowledgeEntry();
-        newEntry.setTitle("New Topic");
-        newEntry.setContent("");
-        if (parent != null) {
-            newEntry.setParent(parent);
+        try {
+            KnowledgeEntry newEntry = new KnowledgeEntry();
+            newEntry.setTitle("New Topic");
+            newEntry.setContent("");
+            if (parent != null) {
+                newEntry.setParent(parent);
+            }
+            KnowledgeEntry saved = service.createEntry(newEntry);
+            treeGrid.getDataProvider().refreshAll();
+            treeGrid.select(saved);
+            loadEntry(saved);
+            showNotification("Topic created successfully", NotificationVariant.LUMO_SUCCESS);
+        } catch (Exception ex) {
+            showNotification("Failed to create topic: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
         }
-        newEntry = service.createEntry(newEntry);
-        treeGrid.getDataProvider().refreshAll();
-        treeGrid.select(newEntry);
-        loadEntry(newEntry);
-
-        showNotification("Topic created successfully", NotificationVariant.LUMO_SUCCESS);
     }
 
     private void autoSave() {
         if (currentEntry != null) {
-            currentEntry.setTitle(titleField.getValue());
-            currentEntry.setContent(contentArea.getValue());
-            service.updateEntry(currentEntry);
-            treeGrid.getDataProvider().refreshItem(currentEntry);
+            try {
+                saveStatusSpan.setText("Saving…");
+                saveStatusSpan.getStyle().set("color", "#FF8F00");
 
-            // Update breadcrumb title if it changed
-            buildBreadcrumb(currentEntry);
+                currentEntry.setTitle(titleField.getValue());
+                currentEntry.setContent(contentArea.getValue());
+                service.updateEntry(currentEntry);
+                treeGrid.getDataProvider().refreshItem(currentEntry);
+                buildBreadcrumb(currentEntry);
 
-            // Update timestamp display
-            service.getEntry(currentEntry.getId()).ifPresent(refreshed -> {
-                currentEntry = refreshed;
-                if (refreshed.getUpdatedAt() != null) {
-                    updatedAtSpan.setText("Last updated: " + refreshed.getUpdatedAt().format(DATE_FORMATTER));
-                }
-            });
+                service.getEntry(currentEntry.getId()).ifPresent(refreshed -> {
+                    currentEntry = refreshed;
+                    if (refreshed.getUpdatedAt() != null) {
+                        updatedAtSpan.setText("Last updated: " + refreshed.getUpdatedAt().format(DATE_FORMATTER));
+                    }
+                });
+
+                saveStatusSpan.setText("Saved ✓");
+                saveStatusSpan.getStyle().set("color", "#388E3C");
+            } catch (Exception ex) {
+                saveStatusSpan.setText("Save failed");
+                saveStatusSpan.getStyle().set("color", "#D32F2F");
+                showNotification("Auto-save failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+            }
         }
     }
 
     private void saveCurrentEntry() {
         if (currentEntry != null) {
-            currentEntry.setTitle(titleField.getValue());
-            currentEntry.setContent(contentArea.getValue());
-            service.updateEntry(currentEntry);
-            treeGrid.getDataProvider().refreshItem(currentEntry);
-            buildBreadcrumb(currentEntry);
+            try {
+                saveStatusSpan.setText("Saving…");
+                saveStatusSpan.getStyle().set("color", "#FF8F00");
 
-            service.getEntry(currentEntry.getId()).ifPresent(refreshed -> {
-                currentEntry = refreshed;
-                if (refreshed.getUpdatedAt() != null) {
-                    updatedAtSpan.setText("Last updated: " + refreshed.getUpdatedAt().format(DATE_FORMATTER));
-                }
-            });
+                currentEntry.setTitle(titleField.getValue());
+                currentEntry.setContent(contentArea.getValue());
+                service.updateEntry(currentEntry);
+                treeGrid.getDataProvider().refreshItem(currentEntry);
+                buildBreadcrumb(currentEntry);
 
-            showNotification("Saved successfully", NotificationVariant.LUMO_SUCCESS);
+                service.getEntry(currentEntry.getId()).ifPresent(refreshed -> {
+                    currentEntry = refreshed;
+                    if (refreshed.getUpdatedAt() != null) {
+                        updatedAtSpan.setText("Last updated: " + refreshed.getUpdatedAt().format(DATE_FORMATTER));
+                    }
+                });
+
+                saveStatusSpan.setText("Saved ✓");
+                saveStatusSpan.getStyle().set("color", "#388E3C");
+                showNotification("Saved successfully", NotificationVariant.LUMO_SUCCESS);
+            } catch (Exception ex) {
+                saveStatusSpan.setText("Save failed");
+                saveStatusSpan.getStyle().set("color", "#D32F2F");
+                showNotification("Save failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+            }
         }
     }
 
@@ -492,17 +854,18 @@ public class MainView extends VerticalLayout {
         dialog.setCancelable(true);
 
         dialog.addConfirmListener(e -> {
-            Long deletedId = currentEntry.getId();
-            service.deleteEntry(deletedId);
-            currentEntry = null;
-            treeGrid.getDataProvider().refreshAll();
-            treeGrid.deselectAll();
-
-            // Show empty state
-            contentPanel.setVisible(false);
-            emptyStatePanel.setVisible(true);
-
-            showNotification("Topic deleted", NotificationVariant.LUMO_CONTRAST);
+            try {
+                service.deleteEntry(currentEntry.getId());
+                currentEntry = null;
+                treeGrid.getDataProvider().refreshAll();
+                treeGrid.deselectAll();
+                contentPanel.setVisible(false);
+                emptyStatePanel.setVisible(true);
+                getUI().ifPresent(ui -> ui.navigate(MainView.class));
+                showNotification("Topic deleted", NotificationVariant.LUMO_CONTRAST);
+            } catch (Exception ex) {
+                showNotification("Delete failed: " + ex.getMessage(), NotificationVariant.LUMO_ERROR);
+            }
         });
 
         dialog.open();
