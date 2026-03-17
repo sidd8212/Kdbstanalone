@@ -47,7 +47,8 @@ A self-contained, hierarchical knowledge management application built with **Spr
 | Framework | Spring Boot | 3.1.4 |
 | UI | Vaadin Flow | 24.2.1 |
 | Persistence | Spring Data JPA / Hibernate | 3.1.4 |
-| Database | H2 (embedded file mode) | 2.2.224 |
+| Database | SQLite (embedded file mode) | 3.44.1.0 (via `sqlite-jdbc`) |
+| Hibernate dialect | hibernate-community-dialects | 6.2.9.Final |
 | Boilerplate | Lombok | 1.18.30 |
 | Build | Maven | 3.x |
 | Packaging | WAR | — |
@@ -110,12 +111,12 @@ All settings are in `src/main/resources/application.properties`:
 
 | Property | Default | Description |
 |---|---|---|
-| `spring.datasource.url` | `jdbc:h2:file:./knowledgebase` | H2 file path (relative to working directory) |
-| `spring.datasource.driver-class-name` | `org.h2.Driver` | H2 JDBC driver |
+| `spring.datasource.url` | `jdbc:sqlite:./knowledgebase.db` | SQLite file path (relative to working directory) |
+| `spring.datasource.driver-class-name` | `org.sqlite.JDBC` | SQLite JDBC driver |
+| `spring.jpa.database-platform` | `org.hibernate.community.dialect.SQLiteDialect` | Hibernate dialect for SQLite |
 | `spring.jpa.hibernate.ddl-auto` | `update` | Schema strategy (`update` keeps data between restarts) |
 | `spring.jpa.show-sql` | `true` | Log generated SQL to console |
-| `spring.h2.console.enabled` | `true` | Enable H2 web console |
-| `spring.h2.console.path` | `/h2-console` | URL path for the H2 console |
+| `spring.jpa.properties.hibernate.jdbc.lob.non_contextual_creation` | `true` | Required for SQLite LOB handling |
 | `vaadin.whitelisted-packages` | `com.knowledgebase` | Vaadin component scanning scope |
 
 ---
@@ -177,14 +178,16 @@ All settings are in `src/main/resources/application.properties`:
 
 ---
 
-## Database Console
+## Database File
 
-The H2 web console is available at **http://localhost:8080/h2-console** while the application is running.
+The SQLite database is stored as **`knowledgebase.db`** in the working directory (wherever you launch the application from).
 
-| Field | Value |
-|---|---|
-| JDBC URL | `jdbc:h2:file:./knowledgebase` |
-| Username | *(leave blank)* |
-| Password | *(leave blank)* |
+You can inspect or query it directly with any SQLite client:
 
-The database file is stored as `knowledgebase.mv.db` in the working directory.
+```bash
+sqlite3 knowledgebase.db
+sqlite> SELECT id, title, view_count FROM knowledge_entries;
+sqlite> .quit
+```
+
+Popular GUI tools: [DB Browser for SQLite](https://sqlitebrowser.org/), [DBeaver](https://dbeaver.io/), [TablePlus](https://tableplus.com/).
