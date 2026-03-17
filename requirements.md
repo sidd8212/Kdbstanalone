@@ -22,7 +22,8 @@ The Knowledge Base is a standalone, browser-based knowledge management system. I
 | Framework | Spring Boot | 3.1.x or higher |
 | UI Framework | Vaadin Flow | 24.x |
 | Persistence | Spring Data JPA + Hibernate | (managed by Spring Boot BOM) |
-| Database | H2 (embedded, file mode) | 2.2.x |
+| Database | SQLite (embedded, file mode) | `sqlite-jdbc` 3.44.x |
+| Hibernate dialect | hibernate-community-dialects | 6.2.x (matching Hibernate version) |
 | Boilerplate reduction | Lombok | 1.18.x |
 | Build tool | Maven | 3.6 or higher |
 | Packaging | WAR | — |
@@ -51,25 +52,30 @@ com.knowledgebase
 
 ### 2.1 Database Configuration
 
-- Database: H2 in file mode. JDBC URL: `jdbc:h2:file:./knowledgebase;DB_CLOSE_DELAY=-1`
-- Driver class: `org.h2.Driver`
+- Database: SQLite in file mode. JDBC URL: `jdbc:sqlite:./knowledgebase.db`
+- Driver class: `org.sqlite.JDBC` (provided by `org.xerial:sqlite-jdbc`)
 - DDL strategy: `hibernate.hbm2ddl.auto=update` (schema evolves without data loss on restart)
-- Dialect: `org.hibernate.dialect.H2Dialect`
-- H2 web console enabled at path `/h2-console`
+- Dialect: `org.hibernate.community.dialect.SQLiteDialect` (provided by `org.hibernate.orm:hibernate-community-dialects`)
+- Additional Hibernate property: `hibernate.jdbc.lob.non_contextual_creation=true` (required for SQLite LOB compatibility)
 - Connection is managed via `DriverManagerDataSource` configured as a Spring `@Bean`
+- Database file stored as `knowledgebase.db` in the application working directory
 
 ### 2.2 Application Properties
 
 The following properties must be present in `src/main/resources/application.properties`:
 
 ```properties
-spring.datasource.url=jdbc:h2:file:./knowledgebase
-spring.datasource.driver-class-name=org.h2.Driver
-spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+# SQLite Database Configuration
+spring.datasource.url=jdbc:sqlite:./knowledgebase.db
+spring.datasource.driver-class-name=org.sqlite.JDBC
+spring.jpa.database-platform=org.hibernate.community.dialect.SQLiteDialect
+
+# Hibernate configuration
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
-spring.h2.console.enabled=true
-spring.h2.console.path=/h2-console
+spring.jpa.properties.hibernate.jdbc.lob.non_contextual_creation=true
+
+# Vaadin configurations
 vaadin.whitelisted-packages=com.knowledgebase
 ```
 

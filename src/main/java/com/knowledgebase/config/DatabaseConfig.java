@@ -21,8 +21,8 @@ public class DatabaseConfig {
     @Bean
     public DataSource dataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.h2.Driver");
-        dataSource.setUrl("jdbc:h2:file:./knowledgebase;DB_CLOSE_DELAY=-1");
+        dataSource.setDriverClassName("org.sqlite.JDBC");
+        dataSource.setUrl("jdbc:sqlite:./knowledgebase.db");
         return dataSource;
     }
 
@@ -37,7 +37,8 @@ public class DatabaseConfig {
         
         Properties properties = new Properties();
         properties.setProperty("hibernate.hbm2ddl.auto", "update");
-                properties.setProperty("hibernate.dialect", "org.hibernate.dialect.H2Dialect");
+        properties.setProperty("hibernate.dialect", "org.hibernate.community.dialect.SQLiteDialect");
+        properties.setProperty("hibernate.jdbc.lob.non_contextual_creation", "true");
         em.setJpaProperties(properties);
         
         return em;
