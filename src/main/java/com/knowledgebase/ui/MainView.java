@@ -272,7 +272,7 @@ public class MainView extends VerticalLayout implements HasUrlParameter<Long> {
             searchResultsPanel.removeAll();
 
             if (currentSearchResults.isEmpty()) {
-                searchResultCountLabel.setText("No results for "" + query + """);
+                searchResultCountLabel.setText("No results for \"" + query + "\"");
                 Div empty = new Div();
                 empty.getStyle()
                         .set("padding", "16px")
@@ -282,7 +282,7 @@ public class MainView extends VerticalLayout implements HasUrlParameter<Long> {
                 empty.setText("No matching topics found.");
                 searchResultsPanel.add(empty);
             } else {
-                searchResultCountLabel.setText(currentSearchResults.size() + " result(s) for "" + query + """);
+                searchResultCountLabel.setText(currentSearchResults.size() + " result(s) for \"" + query + "\"");
                 for (int i = 0; i < currentSearchResults.size(); i++) {
                     searchResultsPanel.add(buildResultItem(currentSearchResults.get(i), query, i));
                 }
